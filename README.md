@@ -7,6 +7,8 @@ I have only implemented csv formating and an option for printing to console.  Th
 ### Version
 1.0.0 - 3/20/2015
 
+This current version only supports either printing to console or writing to csv.
+
 ### Imports
 
 This program requires only bs4 and urllib 
