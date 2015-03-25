@@ -3,6 +3,7 @@ import time
 import json
 import csv
 import urllib2
+import sys
 
 class YellowPageCrawler():
     """
@@ -16,7 +17,7 @@ class YellowPageCrawler():
         Given a query, location query create a crawler for getting listings from YellowPages
         """
         self.starting_urls = self.get_url(query, locality, region, page=1)
-        self.formats = {"print": print_funct, "csv": csv_funct}
+        self.formats = {"print": print_funct, "csv": csv_funct, "json": json_funct}
         self.sleep_time = sleep_time
         self.limit = limit
         self.query = query
@@ -65,11 +66,11 @@ class YellowPageCrawler():
             url = stack.pop()
             print url
             lst_items, next_url = self.extract_page(url)
-            if next_url != None:
+            if next_url is not None:
                 stack.append(next_url)
             for item in lst_items:
                 item_id += 1
-                if self.limit == None:
+                if self.limit is None:
                     item["id"] = item_id
                     yield item
                 elif item_id < self.limit:
@@ -82,14 +83,16 @@ class YellowPageCrawler():
         OUTPUT: Tuple(String, String)
         Gets the list of items from the page and the next url
         """
-        #response = requests.get(url) GIVES UNICODE fail equals warning
         response = urllib2.urlopen(url)
-        bs = BeautifulSoup(txt)
-        results_pane = bs.find_all("div", class_="search-results organic")[0]
-        result = results_pane.find_all("div", class_="result")
-        lst_items = self.get_items(result)
-        next_url = self.get_next_url(bs)
-        return (lst_items, next_url)
+        bs = BeautifulSoup(response)
+        results_lst = bs.find_all("div", class_="search-results organic")
+        if len(results_lst) is not None:
+            results_pane = results_lst[0]
+            result = results_pane.find_all("div", class_="result")
+            lst_items = self.get_items(result)
+            next_url = self.get_next_url(bs)
+            return (lst_items, next_url)
+        return None, None
 
     def get_items(self, results):
         """
@@ -100,10 +103,10 @@ class YellowPageCrawler():
         item_lst = []
         for result in results:
             item = {}
-            item["name"] = result.find_all("a", class_="business-name")[0].text
+            item["name"] = self.check_for_none(result.find_all("a", class_="business-name"))
             item["street-address"] = self.check_for_none(result.find_all("span", class_="street-address"))
             locality = self.check_for_none(result.find_all("span", class_="locality"))
-            if locality != None:
+            if locality is not None:
                 item["locality"] = locality.strip(",")
             else:
                 item["locality"] = None
@@ -119,7 +122,7 @@ class YellowPageCrawler():
         OUTPUT: None/String
         Checks if the List is a size of more then 1 and if it is return the first element stripped.
         """
-        if len(lst) == 0:
+        if len(lst) is 0:
             return None
         else:
             return lst[0].text.strip(", ")
@@ -140,12 +143,28 @@ class YellowPageCrawler():
             else:
                 return self.next_page_url(a[0].attrs["href"])    
 
-def json_funct(filename, generator):
+def json_funct(filename, generator, file_size=30):
     """
     INPUT: String, Generator
     OUTPUT: None
+    This function writes the items into a json file, I chose to write multiple files of the scraped data
+    inorder to not load all of the data into memory.
     """
-    pass
+    item_dict = {}
+    file_count = 0
+
+    for item in generator:
+        item_dict[item['id']] = item
+        if len(item_dict) is file_size:
+            json_name = filename + str(file_count) + ".json"
+            json.dump(item_dict, open(json_name, 'w'))
+            file_count += 1
+            item_dict = {}
+
+    if len(item_dict) < file_size:
+        json_name = filename + str(file_count) + ".json"
+        json.dump(item_dict, open(json_name, 'w'))
+
 
 def print_funct(filename, generator):
     """
@@ -195,19 +214,19 @@ class CSVWriter():
                 self.csv_file.write(",")
         self.csv_file.write("\n")
 
-    def write_row(self, item_dict):
+    def write_row(self, item_dict, sep=','):
         """
         INPUT: Dictionary
         OUTPUT: None
         Writes the row based on the item_dict with the order from the fieldnames list
         """
         for i,item in enumerate(self.fieldnames):
-            if item_dict[item] == None:
+            if item_dict[item] is None:
                 self.csv_file.write(self.fillnone)
             else:
                 self.csv_file.write(unicode(item_dict[item]))
             if i < len(self.fieldnames)-1:
-                self.csv_file.write(",")
+                self.csv_file.write(sep)
         self.csv_file.write("\n")
         
 def cardv(filename, generator):
@@ -218,18 +237,18 @@ def cardv(filename, generator):
     """
     pass
 
-def main():
+def main(query, locality, regio, form="json"):
     """
     Initializes query, locality (city), region (state)
     file name is based on query-locality-region.format
     """
-    query = "cupcakes"
-    locality = "Tucson"
-    region = "AZ"
     ypc = YellowPageCrawler(query, locality, region)
     filename = query+"-"+locality+"-"+region
-    ypc.crawl(filename)
+    ypc.crawl(filename, format_=form)
     print "Crawling completed for: ",filename
 
 if __name__ == '__main__':
-    main()
+    query = sys.argv[1]
+    locality = sys.argv[2]
+    region = sys.argv[3]
+    main(query, locality, region)
