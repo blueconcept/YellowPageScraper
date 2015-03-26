@@ -1,4 +1,6 @@
 from bs4 import BeautifulSoup
+from csvwriter import CSVWriter
+from itemcrawler import MoreInfoScraper
 import time
 import json
 import csv
@@ -9,7 +11,7 @@ class YellowPageCrawler():
     """
     Scrapes all listings from a query for Yellow Pages
     """
-
+    
     def __init__(self, query, locality, region, sleep_time=1, limit=None):
         """
         INPUT: String, String, int, int 
@@ -91,6 +93,7 @@ class YellowPageCrawler():
             result = results_pane.find_all("div", class_="result")
             lst_items = self.get_items(result)
             next_url = self.get_next_url(bs)
+            response.close()
             return (lst_items, next_url)
         return None, None
 
@@ -112,11 +115,29 @@ class YellowPageCrawler():
                 item["locality"] = None
             item["region"] = self.check_for_none(result.find_all("span", attrs={"itemprop":"addressRegion"}))
             item["postal-code"] = self.check_for_none(result.find_all("span", attrs={"itemprop":"postalCode"}))
-            item["phone-number"] = self.check_for_none(result.find_all("div", class_="phones phone primary"))
+            item["phone-number"] = self.check_for_none(result.find_all("div", class_="phones phone primary")) 
+            item["website-url"] = self.get_href(result, "a", "track-visit-website")
+            item["information"] = self.get_additional_info(result, "a", "track-more-info")
             item_lst.append(item)
         return item_lst
-    
-    def check_for_none(self, lst):
+
+    def get_href(self, result, name, class_name):
+        web = self.check_for_none(result.find_all(name, class_=class_name), text=False) 
+        if web is None:
+            return None
+        else:
+            return web.attrs["href"]
+
+    def get_additional_info(self, result, name, class_name):
+        direct = self.get_href(result, name, class_name)
+        if direct is None:
+            return None
+        else:
+            url = self.next_page_url(self.get_href(result, name, class_name))
+            mis = MoreInfoScraper(url)
+            return mis.scraped_dict
+
+    def check_for_none(self, lst, text=True):
         """
         INPUT: List
         OUTPUT: None/String
@@ -124,8 +145,10 @@ class YellowPageCrawler():
         """
         if len(lst) is 0:
             return None
-        else:
+        elif text:
             return lst[0].text.strip(", ")
+        else:
+            return lst[0]
 
     def get_next_url(self,bs):
         """
@@ -151,7 +174,7 @@ def json_funct(filename, generator, file_size=30):
     inorder to not load all of the data into memory.
     """
     item_dict = {}
-    file_count = 0
+    file_count = 1
 
     for item in generator:
         item_dict[item['id']] = item
@@ -185,49 +208,6 @@ def csv_funct(filename, generator):
         writer.write_header()
         for item in generator:
             writer.write_row(item)    
-
-class CSVWriter():
-    """
-    Custom Writer for CSV because the Python built-in one kept giving me extra spaces
-    """
-    
-    
-    def __init__(self, csv_file, fieldnames, fillnone="NA"):
-        """
-        INPUT: file, String, String
-        OUTPUT: None
-        Iinitializes CSVWriter
-        """
-        self.csv_file = csv_file
-        self.fieldnames = fieldnames
-        self.fillnone = fillnone
-    
-    def write_header(self):
-        """
-        INPUT: None
-        OUTPUT: None
-        Writes the headers for the csv file
-        """
-        for i,name in enumerate(self.fieldnames):
-            self.csv_file.write(name)
-            if i < len(self.fieldnames)-1:
-                self.csv_file.write(",")
-        self.csv_file.write("\n")
-
-    def write_row(self, item_dict, sep=','):
-        """
-        INPUT: Dictionary
-        OUTPUT: None
-        Writes the row based on the item_dict with the order from the fieldnames list
-        """
-        for i,item in enumerate(self.fieldnames):
-            if item_dict[item] is None:
-                self.csv_file.write(self.fillnone)
-            else:
-                self.csv_file.write(unicode(item_dict[item]))
-            if i < len(self.fieldnames)-1:
-                self.csv_file.write(sep)
-        self.csv_file.write("\n")
         
 def cardv(filename, generator):
     """
